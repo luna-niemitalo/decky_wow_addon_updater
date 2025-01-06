@@ -1,11 +1,11 @@
 {
-  "name": "Example Plugin",
-  "author": "John Doe",
+  "name": "Decky WoW Addon Updater",
+  "author": "MoonFox",
   "flags": ["debug", "_root"],
   "api_version": 1,
   "publish": {
     "tags": ["template", "root"],
-    "description": "Decky example plugin.",
+    "description": "Decky plugin to update and configure World Of Warcraft Addons.",
     "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
   }
 }
