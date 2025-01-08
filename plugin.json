@@ -1,5 +1,5 @@
 {
-  "name": "Decky WoW Addon Updater",
+  "name": "WoW Addon Updater",
   "author": "MoonFox",
   "flags": ["debug", "_root"],
   "api_version": 1,

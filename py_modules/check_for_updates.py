@@ -1,15 +1,33 @@
-import json
+import os
 import sqlite3
-import zipfile
+import json
+from pathlib import Path
 
+import zipfile
 import requests
+from decky import DECKY_PLUGIN_SETTINGS_DIR
+
+db_path = Path(DECKY_PLUGIN_SETTINGS_DIR) / "local_db.sqlite"
+
+config_path = Path(DECKY_PLUGIN_SETTINGS_DIR) / "config.json"
+
+mode = 'r' if os.path.exists(config_path) else 'w+'
+with open(config_path, mode) as f:
+    if mode == 'r':
+        config = json.load(f)
+    else:
+        config = {
+            "game_version": 517,
+            "page_size": 3,
+            "target_dir": "<target_directory(ex ..._retail_/wtf/interface/addOns/)>",
+        }
+        json.dump(config, f, indent=4)
 
 base_url = "https://www.curseforge.com/api/v1/mods/"
-config = json.load(open("config.json"))
 target_dir = config["target_dir"]
 
 
-def load_wanted_addons_from_sqlite(db_path):
+def load_wanted_addons_from_sqlite():
     """Load wanted addons from SQLite database."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -45,14 +63,14 @@ def get_new_versions(project_id, current_version):
     url = f"{base_url}{project_id}/files"
     print(url)
     # files?pageIndex=0&pageSize=20&sort=dateCreated&sortDescending=true&removeAlphas=true
-    query = {"pageIndex": 0, "pageSize": 20, "sort": "dateCreated", "sortAscending": True, "removeAlphas": True}
+    query = {"pageIndex": 0, "pageSize": config['page_size'], "sort": "dateCreated", "sortAscending": True, "removeAlphas": True}
     response = requests.get(url, headers=headers, params=query)
     results = []
     if response.status_code == 200:
         data = response.json()
         for file in data["data"]:
             if not file["isAvailableForDownload"]: continue
-            if current_version and file["id"] > current_version:
+            if not current_version or file["id"] > current_version:
                 try:
                     gameVersions = file["gameVersions"]
                     gameVersionTypeIds = file["gameVersionTypeIds"]
@@ -67,10 +85,9 @@ def get_new_versions(project_id, current_version):
                     "game_version": gameVersions[wanted_version_index]
                 })
 
-
     return results
 
-def add_versions_to_db(db_path, new_versions):
+def add_versions_to_db(new_versions):
     """Add new versions to SQLite database."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -84,14 +101,7 @@ def add_versions_to_db(db_path, new_versions):
     conn.commit()
     conn.close()
 
-
-def get_latest_versions(db_path, wanted_addons):
-    """
-    Get the row with the largest version_id for each unique project_id.
-
-    :param db_path: Path to the SQLite database
-    :return: A list of dictionaries, each containing the latest version info for a project
-    """
+def get_latest_versions(wanted_addons):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -120,13 +130,13 @@ def get_latest_versions(db_path, wanted_addons):
         }
         for wanted_addon in wanted_addons:
             if addon_description["project_id"] == wanted_addon["project_id"]:
-                if wanted_addon["current_version_id"] is None or addon_description["version_id"] > wanted_addon["current_version_id"]:
+                if wanted_addon["current_version_id"] is None or addon_description["version_id"] > wanted_addon[
+                    "current_version_id"]:
                     latest_versions.append(addon_description)
                     break
 
     conn.close()
     return latest_versions
-
 
 def download_new_version(addon_description):
     download_url = f'https://www.curseforge.com/api/v1/mods/{addon_description["project_id"]}/files/{addon_description["version_id"]}/download'
@@ -145,7 +155,8 @@ def extract_file(version):
     zip_ref.extractall(config["target_dir"])
     zip_ref.close()
 
-def update_addon_version_in_db(db_path, version_id, project_id):
+
+def update_addon_version_in_db(version_id, project_id):
     """Update the current version ID in the database."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -160,18 +171,90 @@ def update_addon_version_in_db(db_path, version_id, project_id):
     conn.close()
 
 
+def create_db_if_not_exists():
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    wanted_addons_table = """
+CREATE TABLE if not exists "wanted_addons"
+    (
+        name            text    not null,
+        project_id      integer unique not null,
+        desired_version integer default null,
+        date            date    default null,
+        current_version_id integer default null
+    );
+"""
 
-wanted_addons = load_wanted_addons_from_sqlite("local_db.sqlite")
-for addon in wanted_addons:
-    project_id = addon["project_id"]
-    current_version = addon["current_version_id"]
-    new_versions = get_new_versions(project_id, current_version)
-    add_versions_to_db("local_db.sqlite", new_versions)
+    addon_versions_table = """
+    
+CREATE TABLE if not exists "addon_versions"
+(
+    project_id   integer not null
+        constraint addon_versions_wanted_addons_project_id_fk
+            references wanted_addons (project_id),
+    version_id   integer not null
+        constraint addon_versions_pk
+            primary key,
+    file_name    text,
+    game_version text,
+    date_created date
+);
+"""
+    cursor.execute(wanted_addons_table)
+    cursor.execute(addon_versions_table)
 
-latest_versions = get_latest_versions("local_db.sqlite", wanted_addons)
-print(json.dumps(latest_versions, indent=4))
 
-for version in latest_versions:
-    download_new_version(version)
-    extract_file(version)
-    update_addon_version_in_db("local_db.sqlite", version["version_id"], version["project_id"])
+    conn.commit()
+    conn.close()
+
+def add_addon_to_db(project_id, name):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO wanted_addons (project_id, name)
+        VALUES (?,?);
+    """, (project_id, name))
+
+    conn.commit()
+    conn.close()
+    print(f"Added addon with project ID {project_id} and name '{name}' to the database.")
+
+
+def init_plugin():
+    create_db_if_not_exists()
+    add_addon_to_db(1171316, "Reverse Engineering")
+    return load_wanted_addons_from_sqlite()
+
+
+
+
+
+
+def main():
+    print("Running debug variant...")
+    os.environ["DECKY_DEBUG"] = "1"
+
+    init_plugin()
+    add_addon_to_db(61284, "Details")
+    return
+    db_path = Path(DECKY_PLUGIN_SETTINGS_DIR) / "local_db.sqlite"
+
+    wanted_addons = load_wanted_addons_from_sqlite()
+    for addon in wanted_addons:
+        project_id = addon["project_id"]
+        current_version = addon["current_version_id"]
+        new_versions = get_new_versions(project_id, current_version)
+        add_versions_to_db(new_versions)
+
+    latest_versions = get_latest_versions(wanted_addons)
+    print(json.dumps(latest_versions, indent=4))
+
+    for version in latest_versions:
+        download_new_version(version)
+        extract_file(version)
+        update_addon_version_in_db(version["version_id"], version["project_id"])
+
+
+if __name__ == "__main__":
+    main()
