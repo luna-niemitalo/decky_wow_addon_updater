@@ -1,11 +1,11 @@
 import {
-    ButtonItem, PanelSection, PanelSectionRow, Focusable, //Navigation,
+    ButtonItem, PanelSection, PanelSectionRow, //Navigation,
     staticClasses
 } from "@decky/ui";
 import {
     addEventListener, removeEventListener, callable, definePlugin, toaster, // routerHook
 } from "@decky/api"
-import {useEffect, useState} from "react";
+import {useState} from "react";
 import {FaShip} from "react-icons/fa";
 
 // import logo from "../assets/logo.png";
@@ -14,7 +14,6 @@ import {FaShip} from "react-icons/fa";
 // Note the type annotations:
 //  the first one: [first: number, second: number] is for the arguments
 //  the second one: number is for the return value
-//const add = callable<[first: number, second: number], number>("add");
 
 interface IAddonVersionInfo {
     version_id: number,
@@ -35,47 +34,59 @@ interface IAddonInfo {
 const get_version = callable<[], string>("get_versions_from_config");
 
 const list_addons = callable<[], IAddonInfo[]>("list_addons");
+const upgrade_addon_remote = callable<[IAddonVersionInfo], IAddonInfo[]>("upgrade_addon");
 
 const check_for_updates = callable<[], IAddonVersionInfo[]>("check_for_updates");
-const get_addons_with_updates = callable<[], IAddonVersionInfo[]>("get_addons_with_updates");
+const install_essentials = callable<[], IAddonInfo[]>("install_essentials");
+const start_scheduler = callable<[], void>("start_scheduler_remote");
+
 
 // This function calls the python function "start_timer", which takes in no arguments and returns nothing.
 
 // It starts a (python) timer which eventually emits the event 'timer_event'
-const startTimer = callable<[], void>("start_timer");
-const stop_long_running = callable<[], void>("stop_long_running");
+const update_all = callable<[], IAddonInfo[]>("upgrade_all");
 
-const timers: NodeJS.Timeout[] = [];
-interface IAddonStatus {
-    updateLoopRunning: boolean; // Add a new field to represent the status
-}
 
-function get_updates(info: IAddonInfo, versions: IAddonVersionInfo[]) {
-    return info.current_version_id + "->" +  versions.filter(v => v.version_id > info.current_version_id && v.project_id === info.project_id).map(v => v.version_id).join(', ');
-}
 
-function AddonInfo(info: IAddonInfo, versions: IAddonVersionInfo[]): JSX.Element {
-    return (
-        <Focusable>
-            <h2>{info.name}</h2>
-            <p>Project ID: {info.project_id}</p>
-            <p>Desired Version: {info.desired_version}</p>
-            <p>Date: {info.date}</p>
-            <p>Current Version ID: {info.current_version_id}</p>
-            <p>Available Updates:</p>
-            <ul>
-                {get_updates(info, versions)}
-            </ul>
-        </Focusable>
-)
-    ;
-}
+
 
 function Content() {
     const [addonList, setAddonList] = useState<IAddonInfo[]>([]);
     const [newVersions, setnewVersions] = useState<IAddonVersionInfo[]>([]);
-    const [addonStatus, setAddonStatus] = useState<IAddonStatus>({updateLoopRunning: false});
 
+    const upgrade_addon = async (version: IAddonVersionInfo) => {
+        const result = await upgrade_addon_remote(version);
+        setAddonList(result);
+    }
+
+    function get_updates(info: IAddonInfo, versions: IAddonVersionInfo[]) {
+        const results = versions.filter(v => v.version_id > info.current_version_id && v.project_id === info.project_id).pop()
+        if (!results) return <div>No updates available</div>;
+        return <ButtonItem layout="below" onClick={() => upgrade_addon(results)} >Upgrade:<br/> {info.current_version_id + "->" +  results.version_id}</ButtonItem>
+    }
+
+    function AddonInfo(info: IAddonInfo, versions: IAddonVersionInfo[]): JSX.Element {
+        return (
+            <div
+                className={staticClasses.PanelSectionRow}
+            >
+                <h2 className={staticClasses.PanelSectionTitle}>
+                    {info.name}
+                </h2>
+                <p className={staticClasses.Text}>Project ID: {info.project_id}</p>
+                <p className={staticClasses.Text}>Desired Version: {info.desired_version}</p>
+                <p className={staticClasses.Text}>Date: {info.date}</p>
+                <p className={staticClasses.Text}>Current Version ID: {info.current_version_id}</p>
+                <p className={staticClasses.Text}>Available Updates:</p>
+                <ul>
+                    {
+                        get_updates(info, versions)
+                    }
+                </ul>
+            </div>
+        )
+            ;
+    }
     const onAddonList = async () => {
         const result = await list_addons();
         setAddonList(result);
@@ -86,50 +97,25 @@ function Content() {
         const result = await check_for_updates();
         setnewVersions(result);
     };
-    const getUpdatesFromDB = async () => {
-        const result = await get_addons_with_updates();
-        setnewVersions(result);
+    const addEssentials = async () => {
+        const result = await install_essentials();
+        setAddonList(result);
     };
-    const getUpdateLoopStatus = async () => {
-        const status = await callable<[], boolean>("get_update_loop_status")();
-        setAddonStatus({ updateLoopRunning: status });
+    const updateAll = async () => {
+        const result = await update_all();
+        setAddonList(result);
     };
-
-    const availableUpdates: any[] = [];
-
-    useEffect(() => {
-        getUpdateLoopStatus();
-        get_addons_with_updates().then(r => availableUpdates.push(...r));
-    }, []);
-
 
     return (<PanelSection title="Panel Section">
         <PanelSectionRow>
-            <ButtonItem
-                layout="below"
-                onClick={() => startTimer()}
-            >
-                {"Start Python timer"}
-            </ButtonItem>
-        </PanelSectionRow>
-        <PanelSectionRow>
-            Update Loop Status: {addonStatus.updateLoopRunning ? "Running" : "Not Running"}
             Available updates: {newVersions.length }
         </PanelSectionRow>
         <PanelSectionRow>
             <ButtonItem
                 layout="below"
-                onClick={() => stop_long_running()}
+                onClick={addEssentials}
             >
-                {"Stop Python timer"}
-            </ButtonItem>
-        </PanelSectionRow>
-        <PanelSectionRow>
-            <ButtonItem
-                layout="below"
-                onClick={getUpdatesFromDB}
-            >
-                {"Get Updates from DB"}
+                {"Add essentials"}
             </ButtonItem>
             <ButtonItem
                 layout="below"
@@ -137,36 +123,18 @@ function Content() {
             >
                 {"Check For Updates"}
             </ButtonItem>
-
+            <ButtonItem
+                layout="below"
+                onClick={updateAll}
+            >
+                {"Update All"}
+            </ButtonItem>
             <PanelSection>
                 {addonList.map(function (object) {
                      return AddonInfo(object, newVersions);
                 }) || "Loading..."}
             </PanelSection>
-            <PanelSection>
-                {newVersions.map(function (object, i) {
-                    return <PanelSectionRow key={i}>{object["version_id"]} </PanelSectionRow>;
-                }) || "Loading..."}
-            </PanelSection>
         </PanelSectionRow>
-
-        {/* <PanelSectionRow>
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <img src={logo} />
-        </div>
-      </PanelSectionRow> */}
-
-        {/*<PanelSectionRow>
-        <ButtonItem
-          layout="below"
-          onClick={() => {
-            Navigation.Navigate("/decky-plugin-test");
-            Navigation.CloseSideMenus();
-          }}
-        >
-          Router
-        </ButtonItem>
-      </PanelSectionRow>*/}
     </PanelSection>);
 }
 
@@ -182,17 +150,12 @@ function Title() {
 
 export default definePlugin(() => {
     console.log("Template plugin initializing, this is called once on frontend startup")
-
-
-    // serverApi.routerHook.addRoute("/decky-plugin-test", DeckyPluginRouterTest, {
-    //   exact: true,
-    // });
+    start_scheduler()
 
     // Add an event listener to the "timer_event" event from the backend
-    const listener = addEventListener<[test1: string, test2: boolean, test3: number]>("timer_event", (test1, test2, test3) => {
-        console.log("Template got timer_event with:", test1, test2, test3)
+    const listener = addEventListener<[new_versions: number]>("new_versions_found", (new_versions) => {
         toaster.toast({
-            title: "template got timer_event", body: `${test1}, ${test2}, ${test3}`
+            title: "New versions found: ", body: "New versions: " +  new_versions,
         });
     });
 
@@ -205,8 +168,7 @@ export default definePlugin(() => {
         icon: <FaShip/>, // The function triggered when your plugin unloads
         onDismount() {
             console.log("Unloading")
-            timers.forEach(clearInterval);
-            removeEventListener("timer_event", listener);
+            removeEventListener("new_versions_found", listener);
             // serverApi.routerHook.removeRoute("/decky-plugin-test");
         },
     };

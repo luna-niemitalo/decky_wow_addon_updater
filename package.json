@@ -1,6 +1,6 @@
 {
   "name": "decky-wow-addons-updater",
-  "version": "0.0.47",
+  "version": "0.0.109",
   "description": "A template to quickly create decky plugins from scratch, based on TypeScript and webpack",
   "type": "module",
   "scripts": {

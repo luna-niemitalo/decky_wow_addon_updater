@@ -1,5 +1,7 @@
 import os
 import sqlite3
+from datetime import datetime
+from time import sleep
 
 # The decky plugin module is located at decky-loader/plugin
 # For easy intellisense checkout the decky-loader code repo
@@ -10,6 +12,7 @@ import json
 from pathlib import Path
 import zipfile
 import requests
+
 
 
 db_path = Path(decky.DECKY_PLUGIN_SETTINGS_DIR) / "local_db.sqlite"
@@ -86,7 +89,7 @@ def get_new_versions(project_id, current_version):
     url = f"{base_url}{project_id}/files"
     decky.logger.info(url)
     # files?pageIndex=0&pageSize=20&sort=dateCreated&sortDescending=true&removeAlphas=true
-    query = {"pageIndex": 0, "pageSize": config['page_size'], "sort": "dateCreated", "sortAscending": True, "removeAlphas": True}
+    query = {"pageIndex": 0, "pageSize": config['page_size'], "sort": "dateCreated", "sortAscending": True, "removeAlphas": True, "gameFlavorId": config['game_version']}
     response = requests.get(url, headers=headers, params=query)
     results = []
     if response.status_code == 200:
@@ -94,9 +97,7 @@ def get_new_versions(project_id, current_version):
         decky.logger.info(f"Found {data['data']} new versions for project ID {project_id}.")
         for file in data["data"]:
             if not file["isAvailableForDownload"]: continue
-            decky.logger.info("Got here1 :3")
             if not current_version or file["id"] > current_version:
-                decky.logger.info("Got here2 :3")
                 addon_data = parse_addon_data(project_id, file)
                 if addon_data:
                     results.append(addon_data)
@@ -167,22 +168,27 @@ def update_addon_version_in_db(version_id, project_id):
         SET current_version_id =?, date = CURRENT_TIMESTAMP
         WHERE project_id =?;
     """, (version_id, project_id))
-    print(f"Updated current version ID for project ID {project_id} to {version_id}.")
+    decky.logger.info(f"Updated current version ID for project ID {project_id} to {version_id}.")
     conn.commit()
     conn.close()
 
 def download_new_version(addon_description):
+    decky.logger.info(f"Downloading new version for project ID {addon_description['project_id']} version ID {addon_description['version_id']}...")
     download_url = f'https://www.curseforge.com/api/v1/mods/{addon_description["project_id"]}/files/{addon_description["version_id"]}/download'
-    print(download_url)
+    decky.logger.info(f"Download URL: {download_url}")
+    decky.logger.info(download_url)
     response = requests.get(download_url)
     data = response.content
-    path = f"cache/{addon_description['file_name']}"
-    with open(path, 'wb') as f:
-        f.write(data)
+    download_dir = Path(decky.DECKY_PLUGIN_RUNTIME_DIR) / 'cache' / addon_description['file_name']
+    decky.logger.info(download_dir)
+    download_dir.parent.mkdir(exist_ok=True, parents=True)
+    download_dir.write_bytes(data)
 def extract_file(version):
     """Extract the downloaded version to a directory."""
-    path = f"cache/{version['file_name']}"
-    zip_ref = zipfile.ZipFile(path, 'r')
+    download_dir = Path(decky.DECKY_PLUGIN_RUNTIME_DIR) / 'cache' / version['file_name']
+    decky.logger.info(f"Extracting new version for project ID {version['project_id']} version ID {version['version_id']}..." + download_dir.name)
+
+    zip_ref = zipfile.ZipFile(download_dir, 'r')
     zip_ref.extractall(config["target_dir"])
     zip_ref.close()
 
@@ -233,30 +239,75 @@ def add_addon_to_db(project_id, name):
 
     conn.commit()
     conn.close()
-    print(f"Added addon with project ID {project_id} and name '{name}' to the database.")
+    decky.logger.info(f"Added addon with project ID {project_id} and name '{name}' to the database.")
 
+
+def add_essentials():
+    add_addon_to_db(914482, "Baganator")
+    add_addon_to_db(91376, "ConsolePort")
+    add_addon_to_db(3358, "DBM")
+    add_addon_to_db(99861, "DejaCharacterStats")
+    add_addon_to_db(61284, "Details")
+    add_addon_to_db(261459, "FasterLoot")
+    add_addon_to_db(257550, "Immersion")
+    add_addon_to_db(4646, "Pawn")
+    add_addon_to_db(7473, "Prat-3.0")
+    add_addon_to_db(15936, "SexyMap")
+    add_addon_to_db(295182, "SpeedyAutoLoot")
+
+
+
+def add_addons():
+    add_addon_to_db(88589, "AlreadyKnown")
+    add_addon_to_db(13402, "Altoholic")
+    add_addon_to_db(6124, "Auctionator")
+    add_addon_to_db(914482, "Baganator")
+    add_addon_to_db(91376, "ConsolePort")
+    add_addon_to_db(705015, "CraftSim")
+    add_addon_to_db(3358, "DBM")
+    add_addon_to_db(99861, "DejaCharacterStats")
+    add_addon_to_db(61284, "Details")
+    add_addon_to_db(261459, "FasterLoot")
+    add_addon_to_db(406104, "GatheringTracker")
+    add_addon_to_db(257550, "Immersion")
+    add_addon_to_db(94855, "Leatrix_Plus")
+    add_addon_to_db(30961, "MogIt")
+    add_addon_to_db(269544, "NameplateSCT")
+    add_addon_to_db(311718, "Narcissus")
+    add_addon_to_db(4646, "Pawn")
+    add_addon_to_db(7473, "Prat-3.0")
+    add_addon_to_db(15936, "SexyMap")
+    add_addon_to_db(295182, "SpeedyAutoLoot")
+    add_addon_to_db(988370, "Syndicator")
+    add_addon_to_db(26886, "TradeSkillMaster")
+    add_addon_to_db(437378, "TrueStatValues")
+    add_addon_to_db(1069992, "WarbandMiser")
+    add_addon_to_db(267285, "ALL THE THINGS")
+    add_addon_to_db(102896, "Premade Groups Filter")
+    add_addon_to_db(888580, "Plumber")
+    add_addon_to_db(26120, "GatherMate2")
+    add_addon_to_db(401253, "Better Wardrobe and Transmog")
+    add_addon_to_db(15226, "Grid2")
+    add_addon_to_db(86372, "Mount Journal Enhanced")
+    add_addon_to_db(29767, "FarmHud")
+    add_addon_to_db(30801, "Rarity")
 def init_plugin():
     create_db_if_not_exists()
-    #add_addon_to_db(1171316, "Reverse Engineering")
     return load_wanted_addons_from_sqlite()
 
+
+
 class Plugin:
-    update_loop_running = True
-    # A normal method. It can be called from the TypeScript side using @decky/api.
-    async def get_versions_from_config(self):
-        return decky.DECKY_PLUGIN_VERSION
-
-
-
-    async def get_update_loop_status(self) -> bool:
-        # Fetch the current status of the update loop from your data source
-        return self.update_loop_running
-
-    async def list_addons(self):
-        # Return a list of addons and their details
-        return load_wanted_addons_from_sqlite()
 
     async def check_for_updates(self):
+        sleep(10)
+        decky.logger.info("Checking for updates... @" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        await decky.emit("new_versions_found", 1)
+        return [{
+            "version_id": 99999999999,
+            "project_id": 13402,
+            "file_name": "Topkek",
+        }]
         wanted_addons = load_wanted_addons_from_sqlite()
         for addon in wanted_addons:
             project_id = addon["project_id"]
@@ -265,41 +316,50 @@ class Plugin:
             add_versions_to_db(new_versions)
         latest_versions = get_latest_versions(wanted_addons)
         if latest_versions:
-            await decky.emit("new_versions_found", f"Found new versions for {len(latest_versions)} addons.")
+            await decky.emit("new_versions_found", len(latest_versions))
             return latest_versions
         return []
 
-    async def get_addons_with_updates(self):
-        wanted_addons = load_wanted_addons_from_sqlite()
-        return get_latest_versions(wanted_addons)
+    async def get_versions_from_config(self):
+        return decky.DECKY_PLUGIN_VERSION
 
+    async def upgrade_addon(self, version):
+        download_new_version(version)
+        extract_file(version)
+        update_addon_version_in_db(version["version_id"], version["project_id"])
+        return load_wanted_addons_from_sqlite()
 
-    async def update_all(self):
-        wanted_addons = load_wanted_addons_from_sqlite()
-        latest_versions = get_latest_versions(wanted_addons)
+    async def upgrade_all(self):
+        latest_versions = get_latest_versions(load_wanted_addons_from_sqlite())
         for version in latest_versions:
             download_new_version(version)
             extract_file(version)
             update_addon_version_in_db(version["version_id"], version["project_id"])
-    async def long_running(self):
-        while self.update_loop_running:
-            await asyncio.sleep(3)
-            # Passing through a bunch of random data, just as an example
-            await decky.emit("timer_event", "Hello from the backend!", True, 2)
+        return load_wanted_addons_from_sqlite()
 
-    async def stop_long_running(self):
-        self.update_loop_running = False
+
+
+    async def list_addons(self):
+        # Return a list of addons and their details
+        return load_wanted_addons_from_sqlite()
+    async def get_addons_with_updates(self):
+        wanted_addons = load_wanted_addons_from_sqlite()
+        return get_latest_versions(wanted_addons)
+
+    async def install_essentials(self):
+        add_essentials()
+        return load_wanted_addons_from_sqlite()
+
+
 
     # Asyncio-compatible long-running code, executed in a task when the plugin is loaded
     async def _main(self):
         init_plugin()
-        self.loop = asyncio.get_event_loop()
-        decky.logger.info("Hello World!")
+        #self.loop = asyncio.get_event_loop()
 
     # Function called first during the unload process, utilize this to handle your plugin being stopped, but not
     # completely removed
     async def _unload(self):
-        decky.logger.info("Goodnight World!")
         pass
 
     # Function called after `_unload` during uninstall, utilize this to clean up processes and other remnants of your
@@ -307,9 +367,6 @@ class Plugin:
     async def _uninstall(self):
         decky.logger.info("Goodbye World!")
         pass
-
-    async def start_timer(self):
-        self.loop.create_task(self.long_running())
 
     # Migrations that should be performed before entering `_main()`.
     async def _migration(self):
