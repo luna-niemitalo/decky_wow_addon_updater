@@ -6,6 +6,7 @@ import {
     addEventListener, removeEventListener, callable, definePlugin, toaster, // routerHook
 } from "@decky/api"
 import {useState} from "react";
+import {useEffect} from "react";
 import {FaShip} from "react-icons/fa";
 
 // import logo from "../assets/logo.png";
@@ -31,14 +32,22 @@ interface IAddonInfo {
     current_version_id: number,
 }
 
+interface IinProgressInfo {
+    name: string,
+    inProgress: boolean,
+    progress: number,
+    total: number,
+
+}
+
 const get_version = callable<[], string>("get_versions_from_config");
 
 const list_addons = callable<[], IAddonInfo[]>("list_addons");
 const upgrade_addon_remote = callable<[IAddonVersionInfo], IAddonInfo[]>("upgrade_addon");
 
 const check_for_updates = callable<[], IAddonVersionInfo[]>("check_for_updates");
+const manual_check_for_updates = callable<[], IAddonVersionInfo[]>("manual_check_for_updates");
 const install_essentials = callable<[], IAddonInfo[]>("install_essentials");
-const start_scheduler = callable<[], void>("start_scheduler_remote");
 
 
 // This function calls the python function "start_timer", which takes in no arguments and returns nothing.
@@ -53,6 +62,38 @@ const update_all = callable<[], IAddonInfo[]>("upgrade_all");
 function Content() {
     const [addonList, setAddonList] = useState<IAddonInfo[]>([]);
     const [newVersions, setnewVersions] = useState<IAddonVersionInfo[]>([]);
+    const [inProgress, setInProgress] = useState<IinProgressInfo>({name: "", inProgress: false, progress: 0, total: 0});
+
+    const stop_progress = () => {
+        setInProgress({ name: "", inProgress: false, progress: 0, total: 0 });
+    }
+
+
+    useEffect(() => {
+
+        // Perform some setup actions
+        const progress_listener = addEventListener<[progress: number, total: number]>("update_progress", (progress, total) => {
+            if (progress === -1) {
+                stop_progress();
+                return;
+            }
+            setInProgress({...inProgress, progress, total});
+        })
+        return () => {
+
+            // This is the cleanup function
+            removeEventListener("update_progress", progress_listener);
+
+            // It will be called when the component is unmounted
+
+        };
+
+    }, [addonList,
+        newVersions,
+        inProgress,]); // The empty array ensures this effect runs once on mount and once on unmount
+
+
+
 
     const upgrade_addon = async (version: IAddonVersionInfo) => {
         const result = await upgrade_addon_remote(version);
@@ -97,6 +138,13 @@ function Content() {
         const result = await check_for_updates();
         setnewVersions(result);
     };
+    const manualCheckForUpdates = async () => {
+        setInProgress({ name: "Manual Check", inProgress: true, progress: 0, total: 0 });
+        const result = await manual_check_for_updates();
+        setnewVersions(result);
+    };
+    SteamClient.System.RegisterForOnResumeFromSuspend(checkForUpdates())
+
     const addEssentials = async () => {
         const result = await install_essentials();
         setAddonList(result);
@@ -106,26 +154,32 @@ function Content() {
         setAddonList(result);
     };
 
+
+
     return (<PanelSection title="Panel Section">
         <PanelSectionRow>
-            Available updates: {newVersions.length }
+            Available updates: {newVersions.length }<br/>
+            {inProgress.inProgress ? inProgress.name + ": " + inProgress.progress + "/" + inProgress.total : ""  }
         </PanelSectionRow>
         <PanelSectionRow>
             <ButtonItem
                 layout="below"
                 onClick={addEssentials}
+                disabled={inProgress.inProgress}
             >
                 {"Add essentials"}
             </ButtonItem>
             <ButtonItem
                 layout="below"
-                onClick={checkForUpdates}
+                onClick={manualCheckForUpdates}
+                disabled={inProgress.inProgress}
             >
                 {"Check For Updates"}
             </ButtonItem>
             <ButtonItem
                 layout="below"
                 onClick={updateAll}
+                disabled={inProgress.inProgress}
             >
                 {"Update All"}
             </ButtonItem>
@@ -150,7 +204,6 @@ function Title() {
 
 export default definePlugin(() => {
     console.log("Template plugin initializing, this is called once on frontend startup")
-    start_scheduler()
 
     // Add an event listener to the "timer_event" event from the backend
     const listener = addEventListener<[new_versions: number]>("new_versions_found", (new_versions) => {
@@ -158,7 +211,6 @@ export default definePlugin(() => {
             title: "New versions found: ", body: "New versions: " +  new_versions,
         });
     });
-
 
     return {
         // The name shown in various decky menus
@@ -169,7 +221,6 @@ export default definePlugin(() => {
         onDismount() {
             console.log("Unloading")
             removeEventListener("new_versions_found", listener);
-            // serverApi.routerHook.removeRoute("/decky-plugin-test");
         },
     };
 });

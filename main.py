@@ -2,6 +2,7 @@ import os
 import sqlite3
 from datetime import datetime
 from time import sleep
+import time
 
 # The decky plugin module is located at decky-loader/plugin
 # For easy intellisense checkout the decky-loader code repo
@@ -28,6 +29,7 @@ with open(config_path, mode) as f:
             "game_version": 517,
             "page_size": 3,
             "target_dir": "<target_directory(ex ..._retail_/wtf/interface/addOns/)>",
+            "last_update_check": 0
         }
         json.dump(config, f, indent=4)
 
@@ -301,14 +303,15 @@ class Plugin:
 
     async def check_for_updates(self):
         sleep(10)
-        decky.logger.info("Checking for updates... @" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        await decky.emit("new_versions_found", 1)
-        return [{
-            "version_id": 99999999999,
-            "project_id": 13402,
-            "file_name": "Topkek",
-        }]
+        config = json.load(open(config_path, 'r'))
+        last_update_check = config.get("last_update_check", 0)
+        if (time.time() - last_update_check) < 3600:
+            return []
+
+        config["last_update_check"] = time.time()
+        json.dump(config, open(config_path, 'w'), indent=4)
         wanted_addons = load_wanted_addons_from_sqlite()
+
         for addon in wanted_addons:
             project_id = addon["project_id"]
             current_version = addon["current_version_id"]
@@ -318,6 +321,28 @@ class Plugin:
         if latest_versions:
             await decky.emit("new_versions_found", len(latest_versions))
             return latest_versions
+        return []
+
+    async def manual_check_for_updates(self):
+        decky.logger.info("Manually checking for updates...")
+        wanted_addons = load_wanted_addons_from_sqlite()
+        total = len(wanted_addons)
+        await decky.emit("update_progress", 0, total)
+        progress = 0
+        for addon in wanted_addons:
+            await decky.emit("update_progress", progress, total)
+            progress += 1
+            project_id = addon["project_id"]
+            current_version = addon["current_version_id"]
+            new_versions = get_new_versions(project_id, current_version)
+            add_versions_to_db(new_versions)
+        latest_versions = get_latest_versions(wanted_addons)
+        await decky.emit("new_versions_found", len(latest_versions))
+        await decky.emit("update_progress", -1)
+        if latest_versions:
+            decky.logger.info(f"Versions found: {len(latest_versions)}")
+            return latest_versions
+        decky.logger.info(f"No versions found...")
         return []
 
     async def get_versions_from_config(self):
